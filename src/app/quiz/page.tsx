@@ -6,13 +6,20 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ChevronLeft, ChevronRight, Check } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Check, Loader2 } from 'lucide-react';
+import { createBrowserClient } from '@supabase/ssr';
 import type { QuizData } from '@/lib/types';
 
 export default function QuizPage() {
   const router = useRouter();
   const [currentStep, setCurrentStep] = useState(0);
   const [quizData, setQuizData] = useState<Partial<QuizData>>({});
+  const [isSaving, setIsSaving] = useState(false);
+  
+  const supabase = createBrowserClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  );
 
   const questions = [
     {
@@ -25,6 +32,22 @@ export default function QuizPage() {
         { value: 'acompanhar', label: 'Só acompanhar minha alimentação' },
         { value: 'curiosidade', label: 'Curiosidade / Testar a IA' },
       ],
+    },
+    {
+      id: 'genero',
+      title: 'Qual é o seu sexo biológico?',
+      type: 'options',
+      options: [
+        { value: 'masculino', label: 'Masculino' },
+        { value: 'feminino', label: 'Feminino' },
+      ],
+    },
+    {
+      id: 'idade',
+      title: 'Qual a sua idade?',
+      type: 'number',
+      placeholder: 'Ex: 28',
+      unit: 'anos',
     },
     {
       id: 'peso',
@@ -45,10 +68,10 @@ export default function QuizPage() {
       title: 'Qual seu nível de atividade?',
       type: 'options',
       options: [
-        { value: 'sedentario', label: 'Sedentário' },
-        { value: 'leve', label: 'Leve' },
-        { value: 'moderado', label: 'Moderado' },
-        { value: 'intenso', label: 'Intenso' },
+        { value: 'sedentario', label: 'Sedentário — Trabalho sentado, quase não me movo' },
+        { value: 'leve', label: 'Leve — Caminho um pouco, malho 1-2x por semana' },
+        { value: 'moderado', label: 'Moderado — Malho 3-5x por semana regularmente' },
+        { value: 'intenso', label: 'Intenso — Treino pesado 6-7x por semana ou trabalho físico' },
       ],
     },
     {
@@ -129,13 +152,59 @@ export default function QuizPage() {
   const currentQuestion = questions[currentStep];
   const progress = ((currentStep + 1) / questions.length) * 100;
 
-  const handleNext = () => {
+  const handleNext = async () => {
     if (currentStep < questions.length - 1) {
       setCurrentStep(currentStep + 1);
     } else {
-      // Salvar dados e redirecionar para dashboard
-      localStorage.setItem('quizData', JSON.stringify(quizData));
-      router.push('/dashboard');
+      // ÚLTIMO PASSO - SALVAR TUDO!
+      setIsSaving(true);
+      
+      try {
+        // Pega usuário logado
+        const { data: { user } } = await supabase.auth.getUser();
+        
+        if (!user) {
+          alert('Erro: Você precisa estar logado!');
+          router.push('/login');
+          return;
+        }
+
+        // Salva dados no Supabase
+        const { error: updateError } = await supabase
+          .from('users')
+          .update({
+            peso: quizData.peso,
+            altura: quizData.altura,
+            objetivo: quizData.objetivo,
+            peso_objetivo: quizData.pesoObjetivo,
+            quiz_completed: true, // ← MARCA COMO COMPLETO!
+          })
+          .eq('id', user.id);
+
+        if (updateError) throw updateError;
+
+        // Salva campos extras no localStorage (não têm coluna no DB)
+        localStorage.setItem(`quizExtras_${user.id}`, JSON.stringify({
+          idade: quizData.idade,
+          genero: quizData.genero,
+          nivelAtividade: quizData.nivelAtividade,
+          fazeExercicios: quizData.fazeExercicios,
+          fastFoodFrequencia: quizData.fastFoodFrequencia,
+          rotinaAlimentar: quizData.rotinaAlimentar,
+          tipoMetas: quizData.tipoMetas,
+          tempoExercicio: quizData.tempoExercicio,
+          tipoTreino: quizData.tipoTreino,
+        }));
+
+        // Redireciona pro dashboard
+        router.push('/dashboard');
+        router.refresh(); // Força atualizar
+      } catch (error) {
+        console.error('Erro ao salvar quiz:', error);
+        alert('Erro ao salvar. Tente novamente!');
+      } finally {
+        setIsSaving(false);
+      }
     }
   };
 
@@ -171,7 +240,7 @@ export default function QuizPage() {
       <div className="p-4 flex items-center justify-between border-b border-gray-800">
         <button
           onClick={handleBack}
-          disabled={currentStep === 0}
+          disabled={currentStep === 0 || isSaving}
           className="p-2 hover:bg-gray-800 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
         >
           <ChevronLeft className="w-6 h-6" />
@@ -196,7 +265,8 @@ export default function QuizPage() {
                 <button
                   key={option.value}
                   onClick={() => handleOptionSelect(option.value)}
-                  className={`p-4 rounded-xl text-left transition-all duration-200 ${
+                  disabled={isSaving}
+                  className={`p-4 rounded-xl text-left transition-all duration-200 disabled:opacity-50 ${
                     quizData[currentQuestion.id as keyof QuizData] === option.value
                       ? 'bg-[#00AEEF] text-white scale-105'
                       : 'bg-gray-900 hover:bg-gray-800 border border-gray-800'
@@ -222,7 +292,8 @@ export default function QuizPage() {
                   placeholder={currentQuestion.placeholder}
                   value={quizData[currentQuestion.id as keyof QuizData] || ''}
                   onChange={(e) => handleNumberChange(Number(e.target.value))}
-                  className="w-full bg-gray-900 border border-gray-800 rounded-xl p-4 text-2xl text-center focus:outline-none focus:border-[#00AEEF] transition-colors"
+                  disabled={isSaving}
+                  className="w-full bg-gray-900 border border-gray-800 rounded-xl p-4 text-2xl text-center focus:outline-none focus:border-[#00AEEF] transition-colors disabled:opacity-50"
                 />
                 {currentQuestion.unit && (
                   <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500 text-xl">
@@ -245,7 +316,8 @@ export default function QuizPage() {
                 max={currentQuestion.max}
                 value={quizData[currentQuestion.id as keyof QuizData] || 0}
                 onChange={(e) => handleNumberChange(Number(e.target.value))}
-                className="w-full max-w-md h-2 bg-gray-800 rounded-lg appearance-none cursor-pointer slider-thumb"
+                disabled={isSaving}
+                className="w-full max-w-md h-2 bg-gray-800 rounded-lg appearance-none cursor-pointer slider-thumb disabled:opacity-50"
               />
               <div className="flex justify-between w-full max-w-md text-sm text-gray-500">
                 <span>{currentQuestion.min} kg</span>
@@ -260,10 +332,15 @@ export default function QuizPage() {
       <div className="p-4 border-t border-gray-800">
         <button
           onClick={handleNext}
-          disabled={!isStepValid()}
+          disabled={!isStepValid() || isSaving}
           className="w-full bg-[#00AEEF] hover:bg-[#0088CC] text-white py-4 rounded-xl font-semibold transition-all duration-200 disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center gap-2"
         >
-          {currentStep === questions.length - 1 ? (
+          {isSaving ? (
+            <>
+              <Loader2 className="w-5 h-5 animate-spin" />
+              Salvando...
+            </>
+          ) : currentStep === questions.length - 1 ? (
             <>
               <Check className="w-5 h-5" />
               Finalizar

@@ -1,121 +1,90 @@
-// ============================================
-// API ROUTE - ANÁLISE DE ALIMENTOS COM OPENAI
-// Processa imagem e retorna análise nutricional
-// ============================================
-
 import { NextRequest, NextResponse } from 'next/server';
-import OpenAI from 'openai';
+import { GoogleGenerativeAI } from '@google/generative-ai';
+import { createServerClient } from '@supabase/ssr';
+import { cookies } from 'next/headers';
+import { checkAndIncrement } from '@/lib/rateLimit';
 
-// Inicializar cliente OpenAI
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 
-export async function POST(request: NextRequest) {
+export async function POST(req: NextRequest) {
+  const cookieStore = await cookies();
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() { return cookieStore.getAll(); },
+        setAll(cookiesToSet) {
+          try {
+            cookiesToSet.forEach(({ name, value, options }) => cookieStore.set(name, value, options));
+          } catch {}
+        },
+      },
+    }
+  );
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
+
+  const rateLimit = await checkAndIncrement(supabase, user.id, 'analise');
+  if (!rateLimit.allowed) return rateLimit.response;
+
   try {
-    const { imageBase64 } = await request.json();
+    const { imageBase64 } = await req.json();
 
     if (!imageBase64) {
-      return NextResponse.json(
-        { error: 'Imagem não fornecida' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'Nenhuma imagem foi enviada' }, { status: 400 });
     }
 
-    // Chamar OpenAI Vision API
-    const response = await openai.chat.completions.create({
-      model: 'gpt-4o',
-      messages: [
-        {
-          role: 'user',
-          content: [
-            {
-              type: 'text',
-              text: `Analise esta imagem de comida e retorne APENAS um JSON válido (sem markdown, sem explicações) com a seguinte estrutura:
+    const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, '');
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+
+    const prompt = `
+Você é um nutricionista expert. Analise esta imagem de comida e identifique o alimento.
+
+Forneça as seguintes informações em formato JSON (sem formatação markdown, apenas o JSON puro):
+
 {
-  "alimento": "nome do alimento principal",
+  "alimento": "Nome específico do alimento ou prato",
   "calorias": número estimado de calorias totais,
-  "equivalencia": "descrição visual da equivalência (ex: '2 latinhas de refrigerante', '3 fatias de pizza')",
+  "equivalencia": "Texto explicando a equivalência (ex: 'Equivale a 3 fatias de pizza')",
   "proteinas": gramas de proteína,
   "carboidratos": gramas de carboidratos,
   "gorduras": gramas de gordura
 }
 
-Se não conseguir identificar comida na imagem, retorne:
-{
-  "error": "Não foi possível identificar alimentos na imagem"
-}`,
-            },
-            {
-              type: 'image_url',
-              image_url: {
-                url: imageBase64,
-              },
-            },
-          ],
-        },
-      ],
-      max_tokens: 500,
-    });
+Seja preciso na identificação e nas estimativas nutricionais.`;
 
-    const content = response.choices[0].message.content;
-    
-    if (!content) {
-      return NextResponse.json(
-        { error: 'Resposta vazia da API' },
-        { status: 500 }
-      );
-    }
+    const result = await model.generateContent([
+      prompt,
+      { inlineData: { data: base64Data, mimeType: 'image/jpeg' } },
+    ]);
 
-    // Parse da resposta JSON
-    let analysisData;
-    try {
-      analysisData = JSON.parse(content);
-    } catch (parseError) {
-      // Se não for JSON válido, tentar extrair JSON do texto
-      const jsonMatch = content.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        analysisData = JSON.parse(jsonMatch[0]);
-      } else {
-        return NextResponse.json(
-          { error: 'Formato de resposta inválido' },
-          { status: 500 }
-        );
-      }
-    }
+    const responseText = result.response.text();
+    const cleaned = responseText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    const parsed = JSON.parse(cleaned);
 
-    // Verificar se houve erro na análise
-    if (analysisData.error) {
-      return NextResponse.json(
-        { error: analysisData.error },
-        { status: 400 }
-      );
-    }
-
-    // Calcular tempo de queima baseado nas calorias
-    const calorias = analysisData.calorias;
     const tempoQueima = {
-      caminhada: Math.round(calorias / 4), // ~4 cal/min
-      corrida: Math.round(calorias / 10), // ~10 cal/min
-      bike: Math.round(calorias / 8), // ~8 cal/min
-      musculacao: Math.round(calorias / 6), // ~6 cal/min
+      caminhada:    Math.round(parsed.calorias / 5),
+      corrida:      Math.round(parsed.calorias / 10),
+      bike:         Math.round(parsed.calorias / 8),
+      musculacao:   Math.round(parsed.calorias / 6),
     };
 
-    // Retornar análise completa
     return NextResponse.json({
-      alimento: analysisData.alimento,
-      calorias: analysisData.calorias,
-      equivalencia: analysisData.equivalencia,
-      proteinas: analysisData.proteinas || 0,
-      carboidratos: analysisData.carboidratos || 0,
-      gorduras: analysisData.gorduras || 0,
+      alimento:     parsed.alimento,
+      calorias:     parsed.calorias,
+      equivalencia: parsed.equivalencia,
+      proteinas:    parsed.proteinas,
+      carboidratos: parsed.carboidratos,
+      gorduras:     parsed.gorduras,
       tempoQueima,
     });
 
-  } catch (error: any) {
-    console.error('Erro na análise:', error);
+  } catch (error: unknown) {
+    console.error('Erro ao analisar comida:', error);
     return NextResponse.json(
-      { error: error.message || 'Erro ao processar imagem' },
+      { error: 'Não consegui identificar o alimento. Tente outra foto mais clara.' },
       { status: 500 }
     );
   }

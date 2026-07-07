@@ -1,123 +1,109 @@
-// ============================================
-// API ROUTE - GERAÇÃO DE DIETA COM IA
-// Cria plano alimentar personalizado com OpenAI
-// ============================================
-
 import { NextRequest, NextResponse } from 'next/server';
-import OpenAI from 'openai';
+import { GoogleGenerativeAI } from '@google/generative-ai';
+import { createServerClient } from '@supabase/ssr';
+import { cookies } from 'next/headers';
+import { checkAndIncrement } from '@/lib/rateLimit';
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 
-export async function POST(request: NextRequest) {
+export async function POST(req: NextRequest) {
+  const cookieStore = await cookies();
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() { return cookieStore.getAll(); },
+        setAll(cookiesToSet) {
+          try {
+            cookiesToSet.forEach(({ name, value, options }) => cookieStore.set(name, value, options));
+          } catch {}
+        },
+      },
+    }
+  );
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
+
+  const rateLimit = await checkAndIncrement(supabase, user.id, 'dieta');
+  if (!rateLimit.allowed) return rateLimit.response;
+
   try {
-    const { objetivo, peso, altura, preferencias, restricoes } = await request.json();
+    const { objetivo, peso, altura, preferencias, restricoes, caloriasAlvo: caloriasAlvoFrontend } = await req.json();
 
     if (!objetivo || !peso || !altura) {
-      return NextResponse.json(
-        { error: 'Dados incompletos' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'Dados incompletos' }, { status: 400 });
     }
 
-    // Calcular TMB (Taxa Metabólica Basal) - Fórmula de Harris-Benedict
-    const tmb = 10 * peso + 6.25 * altura - 5 * 25 + 5; // Assumindo idade média de 25 anos
-    
-    // Ajustar calorias baseado no objetivo
-    let caloriasAlvo = tmb;
-    if (objetivo === 'perder') {
-      caloriasAlvo = tmb - 500; // Déficit de 500 calorias
-    } else if (objetivo === 'ganhar') {
-      caloriasAlvo = tmb + 500; // Superávit de 500 calorias
+    let caloriasAlvo: number;
+    if (caloriasAlvoFrontend && caloriasAlvoFrontend > 0) {
+      caloriasAlvo = caloriasAlvoFrontend;
+    } else {
+      const tmb = 10 * peso + 6.25 * altura - 5 * 30 + 5;
+      if (objetivo === 'perder')      caloriasAlvo = Math.round(tmb * 0.8);
+      else if (objetivo === 'ganhar') caloriasAlvo = Math.round(tmb * 1.2);
+      else                            caloriasAlvo = Math.round(tmb);
     }
 
-    // Prompt para OpenAI
-    const prompt = `Crie um plano alimentar personalizado em formato JSON com a seguinte estrutura:
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+
+    const prompt = `
+Você é um nutricionista profissional. Crie um plano alimentar completo com base nos seguintes dados:
+
+- Objetivo: ${objetivo === 'perder' ? 'Perder peso' : objetivo === 'ganhar' ? 'Ganhar massa muscular' : 'Manter peso'}
+- Peso atual: ${peso}kg
+- Altura: ${altura}cm
+- Meta calórica diária: ${caloriasAlvo} kcal
+${preferencias ? `- Preferências alimentares: ${preferencias}` : ''}
+${restricoes ? `- Restrições/Alergias: ${restricoes}` : ''}
+
+Responda APENAS com um JSON válido (sem markdown, sem backticks) neste formato:
 
 {
-  "caloriasAlvo": ${Math.round(caloriasAlvo)},
-  "macros": {
-    "proteinas": número em gramas,
-    "carboidratos": número em gramas,
-    "gorduras": número em gramas
-  },
   "refeicoes": [
     {
       "nome": "Café da Manhã",
       "horario": "07:00",
-      "alimentos": ["alimento 1", "alimento 2", ...],
-      "calorias": número
-    },
-    ... (5 refeições: café, lanche manhã, almoço, lanche tarde, jantar)
+      "alimentos": ["Alimento 1", "Alimento 2"],
+      "calorias": 400
+    }
   ],
-  "dicas": ["dica 1", "dica 2", "dica 3"],
+  "dicas": ["Dica 1", "Dica 2"],
   "exercicios": [
     {
-      "tipo": "nome do exercício",
-      "duracao": "tempo em minutos",
-      "calorias": número de calorias queimadas
+      "tipo": "Caminhada",
+      "duracao": "30 minutos",
+      "calorias": 150
     }
   ]
 }
 
-Informações do usuário:
-- Objetivo: ${objetivo === 'perder' ? 'perder peso' : objetivo === 'ganhar' ? 'ganhar peso' : 'manter peso'}
-- Peso: ${peso} kg
-- Altura: ${altura} cm
-- Calorias alvo: ${Math.round(caloriasAlvo)} kcal/dia
-${preferencias ? `- Preferências alimentares: ${preferencias}` : ''}
-${restricoes ? `- Restrições: ${restricoes}` : ''}
+Crie 6 refeições balanceadas (Café, Lanche Manhã, Almoço, Lanche Tarde, Jantar, Ceia).
+${preferencias ? `IMPORTANTE: Considere as preferências: ${preferencias}` : ''}
+${restricoes ? `IMPORTANTE: Evite completamente: ${restricoes}` : ''}`;
 
-Crie um plano equilibrado, saudável e realista. Retorne APENAS o JSON, sem markdown ou explicações.`;
+    const result = await model.generateContent(prompt);
+    const responseText = result.response.text();
+    const cleaned = responseText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    const parsed = JSON.parse(cleaned);
 
-    const response = await openai.chat.completions.create({
-      model: 'gpt-4o',
-      messages: [
-        {
-          role: 'system',
-          content: 'Você é um nutricionista especializado em criar planos alimentares personalizados. Retorne sempre JSON válido.',
-        },
-        {
-          role: 'user',
-          content: prompt,
-        },
-      ],
-      max_tokens: 2000,
+    const proteinas    = Math.round((caloriasAlvo * 0.3) / 4);
+    const carboidratos = Math.round((caloriasAlvo * 0.4) / 4);
+    const gorduras     = Math.round((caloriasAlvo * 0.3) / 9);
+
+    return NextResponse.json({
+      caloriasAlvo,
+      macros: { proteinas, carboidratos, gorduras },
+      refeicoes:  parsed.refeicoes  || [],
+      dicas:      parsed.dicas      || [],
+      exercicios: parsed.exercicios || [],
     });
 
-    const content = response.choices[0].message.content;
-    
-    if (!content) {
-      return NextResponse.json(
-        { error: 'Resposta vazia da API' },
-        { status: 500 }
-      );
-    }
-
-    // Parse da resposta JSON
-    let dietData;
-    try {
-      dietData = JSON.parse(content);
-    } catch (parseError) {
-      // Tentar extrair JSON do texto
-      const jsonMatch = content.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        dietData = JSON.parse(jsonMatch[0]);
-      } else {
-        return NextResponse.json(
-          { error: 'Formato de resposta inválido' },
-          { status: 500 }
-        );
-      }
-    }
-
-    return NextResponse.json(dietData);
-
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Erro ao gerar dieta:', error);
     return NextResponse.json(
-      { error: error.message || 'Erro ao gerar plano alimentar' },
+      { error: 'Erro ao gerar plano alimentar. Tente novamente.' },
       { status: 500 }
     );
   }
