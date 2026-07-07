@@ -169,28 +169,25 @@ export default function UpgradePage() {
           </div>
         )}
 
-        {/* Banner PRO ativo */}
+        {/* Nota compacta PRO */}
         {isPro && (
-          <div className="bg-gradient-to-br from-yellow-600/20 to-yellow-700/10 border-2 border-yellow-500/50 rounded-2xl p-8 mb-8 text-center">
-            <Crown className="w-16 h-16 text-yellow-500 mx-auto mb-4" />
-            <h2 className="text-3xl font-bold mb-2">Você é PRO! 🎉</h2>
-            <p className="text-gray-300 mb-6">
-              Aproveite todas as funcionalidades ilimitadas do Queima AI.
-            </p>
+          <div className="flex items-center justify-between bg-yellow-500/10 border border-yellow-500/40 rounded-xl px-5 py-3 mb-6">
+            <div className="flex items-center gap-2">
+              <Crown className="w-5 h-5 text-yellow-400" />
+              <span className="text-yellow-400 font-semibold text-sm">Você já é membro PRO! 👑</span>
+            </div>
             <button
               onClick={handlePortal}
               disabled={portalLoading}
-              className="inline-flex items-center gap-2 bg-yellow-500 hover:bg-yellow-600 text-white px-8 py-3 rounded-xl font-semibold transition-colors disabled:opacity-50"
+              className="flex items-center gap-1.5 text-sm text-gray-400 hover:text-white transition-colors disabled:opacity-50"
             >
-              {portalLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <ExternalLink className="w-5 h-5" />}
-              Gerenciar / Cancelar Assinatura
+              {portalLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ExternalLink className="w-4 h-4" />}
+              Gerenciar assinatura
             </button>
-            <p className="text-xs text-gray-500 mt-3">Cancele quando quiser, sem multas.</p>
           </div>
         )}
 
-        {!isPro && (
-          <>
+        <>
             {/* Hero */}
             <div className="text-center mb-10">
               <div className="inline-flex items-center gap-2 bg-yellow-500/10 border border-yellow-500/30 rounded-full px-6 py-2 mb-6">
@@ -307,15 +304,14 @@ export default function UpgradePage() {
                 >
                   {checkingOut
                     ? <><Loader2 className="w-5 h-5 animate-spin" /> Redirecionando...</>
-                    : <><Crown className="w-5 h-5" /> Assinar Plano {plans[selectedPlan].name}</>}
+                    : <><Crown className="w-5 h-5" /> {isPro ? 'Trocar para este Plano' : `Assinar Plano ${plans[selectedPlan].name}`}</>}
                 </button>
                 <p className="text-center text-xs text-gray-400 mt-3">
                   Pagamento seguro via Stripe • Cancele quando quiser • Garantia de 7 dias
                 </p>
               </div>
             </div>
-          </>
-        )}
+        </>
 
         {/* FAQ */}
         <div className="mt-4">

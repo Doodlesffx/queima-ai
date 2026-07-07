@@ -17,6 +17,7 @@ export default function DashboardPage() {
   const [quizData, setQuizData] = useState<QuizData | null>(null);
   const [userName, setUserName] = useState('Usuário');
   const [isPro, setIsPro] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [editingField, setEditingField] = useState<string | null>(null);
   const [tempValue, setTempValue] = useState('');
   const [loading, setLoading] = useState(true);
@@ -65,7 +66,8 @@ export default function DashboardPage() {
             pesoObjetivo: data.peso_objetivo ?? 0,
           } as QuizData);
           setUserName(data.nome || user.email?.split('@')[0] || 'Usuário');
-          setIsPro(data.plan === 'pro');
+          setIsAdmin(data.is_admin === true);
+          setIsPro(data.plan === 'pro' || data.is_admin === true);
         }
       } catch (err) {
         console.error('Erro ao carregar dados:', err);
@@ -178,13 +180,28 @@ export default function DashboardPage() {
               <h1 className="text-2xl font-bold">Queima AI</h1>
             </div>
             <div className="flex items-center gap-3">
-              <button
-                onClick={() => router.push('/upgrade')}
-                className="flex items-center gap-2 bg-gradient-to-r from-yellow-500 to-yellow-600 hover:from-yellow-600 hover:to-yellow-700 px-4 py-2 rounded-full text-sm font-semibold transition-all duration-200"
-              >
-                <Crown className="w-4 h-4" />
-                {isPro ? 'PRO' : 'Upgrade'}
-              </button>
+              {isAdmin ? (
+                <div className="flex items-center gap-2 bg-yellow-500/20 border border-yellow-400 text-yellow-300 px-4 py-2 rounded-full text-sm font-bold cursor-default select-none">
+                  <Crown className="w-4 h-4 fill-yellow-300" />
+                  ADMIN
+                </div>
+              ) : isPro ? (
+                <button
+                  onClick={() => router.push('/upgrade')}
+                  className="flex items-center gap-2 bg-yellow-500/20 border border-yellow-500 text-yellow-400 px-4 py-2 rounded-full text-sm font-bold hover:bg-yellow-500/30 transition-all"
+                >
+                  <Crown className="w-4 h-4 fill-yellow-400" />
+                  PRO
+                </button>
+              ) : (
+                <button
+                  onClick={() => router.push('/upgrade')}
+                  className="flex items-center gap-2 bg-gradient-to-r from-yellow-500 to-yellow-600 hover:from-yellow-600 hover:to-yellow-700 px-4 py-2 rounded-full text-sm font-semibold transition-all duration-200"
+                >
+                  <Crown className="w-4 h-4" />
+                  Upgrade
+                </button>
+              )}
               <UserProfile userName={userName} isPro={isPro} />
             </div>
           </div>

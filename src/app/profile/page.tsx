@@ -29,6 +29,7 @@ interface UserProfile {
   peso_objetivo: number | null;
   quiz_completed: boolean;
   plan: string;
+  is_admin: boolean;
   created_at: string;
 }
 
@@ -138,7 +139,8 @@ export default function ProfilePage() {
   const imc = parseFloat(calculateIMC());
   const imcCategory = getIMCCategory(imc);
   const userName = profile.nome || profile.email.split('@')[0] || 'Usuário';
-  const isPro = profile.plan === 'pro';
+  const isAdmin = profile.is_admin === true;
+  const isPro = isAdmin || profile.plan === 'pro';
   const joinDate = new Date(profile.created_at).toLocaleDateString('pt-BR');
 
   const badges = [
@@ -197,12 +199,14 @@ export default function ProfilePage() {
               <div className="flex flex-wrap gap-3 justify-center sm:justify-start mb-4">
                 <span
                   className={`px-3 py-1 rounded-full text-sm font-semibold ${
-                    isPro
+                    isAdmin
+                      ? 'bg-yellow-400/20 border border-yellow-400 text-yellow-300'
+                      : isPro
                       ? 'bg-yellow-500/20 text-yellow-500'
                       : 'bg-gray-700 text-gray-300'
                   }`}
                 >
-                  {isPro ? '👑 PRO' : '🆓 Gratuito'}
+                  {isAdmin ? '👑 ADMIN' : isPro ? '👑 PRO' : '🆓 Gratuito'}
                 </span>
                 <span className="px-3 py-1 bg-[#00AEEF]/20 text-[#00AEEF] rounded-full text-sm font-semibold">
                   <Calendar className="w-4 h-4 inline mr-1" />

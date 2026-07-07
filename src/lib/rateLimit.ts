@@ -37,7 +37,7 @@ export async function checkAndIncrement(
 ): Promise<RateLimitResult> {
   const { data: profile } = await supabase
     .from('users')
-    .select('plan, uso_analises, uso_analises_data, uso_dietas, uso_dietas_semana, uso_treinos, uso_treinos_semana')
+    .select('plan, is_admin, uso_analises, uso_analises_data, uso_dietas, uso_dietas_semana, uso_treinos, uso_treinos_semana')
     .eq('id', userId)
     .single();
 
@@ -47,6 +47,9 @@ export async function checkAndIncrement(
       response: NextResponse.json({ error: 'Perfil não encontrado' }, { status: 404 }),
     };
   }
+
+  // Admins nunca são bloqueados
+  if (profile.is_admin) return { allowed: true };
 
   const plan: 'free' | 'pro' = profile.plan === 'pro' ? 'pro' : 'free';
   const limit = LIMITS[plan][resource];
