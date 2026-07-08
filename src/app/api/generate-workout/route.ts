@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import Groq from 'groq-sdk';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { checkAndIncrement } from '@/lib/rateLimit';
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
+const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
 export async function POST(req: NextRequest) {
   const cookieStore = await cookies();
@@ -51,9 +51,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(cached.resultado);
     }
 
-    // Cache miss — gera com Gemini
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
-
+    // Cache miss — gera com Groq
     const prompt = `
 Você é personal trainer. Crie plano de treino:
 - Local: ${local === 'casa' ? 'Casa (sem equipamentos)' : 'Academia'}
@@ -80,8 +78,11 @@ Responda APENAS JSON (sem markdown):
   "dicas": ["Aqueça 5-10min"]
 }`;
 
-    const result = await model.generateContent(prompt);
-    const text = result.response.text();
+    const result = await groq.chat.completions.create({
+      model: 'llama-3.3-70b-versatile',
+      messages: [{ role: 'user', content: prompt }],
+    });
+    const text = result.choices[0].message.content || '';
     const cleaned = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
     const parsed = JSON.parse(cleaned);
 

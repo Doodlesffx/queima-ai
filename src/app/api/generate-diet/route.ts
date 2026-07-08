@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import Groq from 'groq-sdk';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { checkAndIncrement } from '@/lib/rateLimit';
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
+const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
 export async function POST(req: NextRequest) {
   const cookieStore = await cookies();
@@ -46,8 +46,6 @@ export async function POST(req: NextRequest) {
       else                            caloriasAlvo = Math.round(tmb);
     }
 
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
-
     const prompt = `
 Você é um nutricionista profissional. Crie um plano alimentar completo com base nos seguintes dados:
 
@@ -83,8 +81,11 @@ Crie 6 refeições balanceadas (Café, Lanche Manhã, Almoço, Lanche Tarde, Jan
 ${preferencias ? `IMPORTANTE: Considere as preferências: ${preferencias}` : ''}
 ${restricoes ? `IMPORTANTE: Evite completamente: ${restricoes}` : ''}`;
 
-    const result = await model.generateContent(prompt);
-    const responseText = result.response.text();
+    const result = await groq.chat.completions.create({
+      model: 'llama-3.3-70b-versatile',
+      messages: [{ role: 'user', content: prompt }],
+    });
+    const responseText = result.choices[0].message.content || '';
     const cleaned = responseText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
     const parsed = JSON.parse(cleaned);
 

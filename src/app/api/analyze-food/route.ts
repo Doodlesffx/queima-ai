@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import Groq from 'groq-sdk';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { checkAndIncrement } from '@/lib/rateLimit';
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
+const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
 export async function POST(req: NextRequest) {
   const cookieStore = await cookies();
@@ -37,7 +37,6 @@ export async function POST(req: NextRequest) {
     }
 
     const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, '');
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
 
     const prompt = `
 Você é um nutricionista expert. Analise esta imagem de comida e identifique o alimento.
@@ -55,12 +54,18 @@ Forneça as seguintes informações em formato JSON (sem formatação markdown, 
 
 Seja preciso na identificação e nas estimativas nutricionais.`;
 
-    const result = await model.generateContent([
-      prompt,
-      { inlineData: { data: base64Data, mimeType: 'image/jpeg' } },
-    ]);
+    const result = await groq.chat.completions.create({
+      model: 'meta-llama/llama-4-scout-17b-16e-instruct',
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'text', text: prompt },
+          { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${base64Data}` } },
+        ],
+      }],
+    });
 
-    const responseText = result.response.text();
+    const responseText = result.choices[0].message.content || '';
     const cleaned = responseText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
     const parsed = JSON.parse(cleaned);
 
