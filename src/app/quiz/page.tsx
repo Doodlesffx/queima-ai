@@ -183,6 +183,13 @@ export default function QuizPage() {
 
         if (updateError) throw updateError;
 
+        // Dispara email de boas-vindas (fire-and-forget, não bloqueia o redirect)
+        fetch('/api/email/welcome', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: user.email?.split('@')[0] }),
+        }).catch(() => {});
+
         // Salva campos extras no localStorage (não têm coluna no DB)
         localStorage.setItem(`quizExtras_${user.id}`, JSON.stringify({
           idade: quizData.idade,

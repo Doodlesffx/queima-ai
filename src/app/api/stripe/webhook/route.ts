@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { createClient } from '@supabase/supabase-js';
+import { sendProConfirmationEmail } from '@/lib/resend';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
@@ -41,6 +42,17 @@ export async function POST(req: NextRequest) {
           plan: 'pro',
           stripe_subscription_id: session.subscription as string,
         }).eq('id', uid);
+
+        // Email de confirmação PRO (fire-and-forget)
+        const email = session.customer_details?.email;
+        const name  = session.customer_details?.name || email?.split('@')[0] || 'Usuário';
+        const lineItems = await stripe.checkout.sessions.listLineItems(session.id, { limit: 1 });
+        const planName = lineItems.data[0]?.description ?? 'PRO';
+        if (email) {
+          sendProConfirmationEmail(email, name, planName).catch((err) =>
+            console.error('Erro ao enviar email PRO:', err)
+          );
+        }
       }
       break;
     }
