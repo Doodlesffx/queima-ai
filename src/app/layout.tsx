@@ -1,10 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import { Suspense } from "react";
 import "./globals.css";
 import PWASetup from "@/components/PWASetup";
 import PHProvider from "@/components/PHProvider";
-import PostHogPageView from "@/components/PostHogPageView";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -45,9 +43,6 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         <PHProvider>
-          <Suspense>
-            <PostHogPageView />
-          </Suspense>
           <PWASetup />
           {children}
         </PHProvider>

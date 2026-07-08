@@ -95,7 +95,7 @@ export default function UpgradePage() {
       });
       const data = await res.json();
       if (data.url) {
-        posthog?.capture('pro_checkout_started', { plan });
+        posthog?.capture('upgrade_started', { plan });
         window.location.href = data.url;
       } else {
         setNotice({ type: 'error', msg: data.error ?? 'Erro ao iniciar pagamento.' });
