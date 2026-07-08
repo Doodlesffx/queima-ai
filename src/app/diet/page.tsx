@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { ArrowLeft, Loader2, Utensils, Flame, Clock, Share2, Zap, TrendingDown, TrendingUp, Brain, Target, Info } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { createBrowserClient } from '@supabase/ssr';
+import { usePostHog } from 'posthog-js/react';
 import type { QuizData } from '@/lib/types';
 import ShareMenu from '@/components/ShareMenu';
 
@@ -84,6 +85,7 @@ export default function DietPage() {
   const [showShareMenu, setShowShareMenu]           = useState(false);
   const [loading, setLoading]                       = useState(true);
   const [userId, setUserId]                         = useState<string | null>(null);
+  const posthog = usePostHog();
 
   const supabase = createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -214,6 +216,7 @@ export default function DietPage() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Erro ao gerar dieta');
       setDietPlan(data);
+      posthog?.capture('diet_generated', { objetivo: quizData?.objetivo });
       saveDietToHistory(data, quizData);
     } catch (err: any) {
       setError(err.message || 'Erro ao gerar plano alimentar');

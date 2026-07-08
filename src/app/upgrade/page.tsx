@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { createBrowserClient } from '@supabase/ssr';
+import { usePostHog } from 'posthog-js/react';
 import {
   Crown, Check, X, Zap, ArrowLeft, Sparkles, Loader2, ExternalLink,
 } from 'lucide-react';
@@ -53,6 +54,7 @@ export default function UpgradePage() {
   const [checkingOut, setCheckingOut]   = useState(false);
   const [portalLoading, setPortalLoading] = useState(false);
   const [notice, setNotice]             = useState<{ type: 'success' | 'error'; msg: string } | null>(null);
+  const posthog = usePostHog();
 
   const supabase = createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -71,6 +73,7 @@ export default function UpgradePage() {
       // Lê query params sem useSearchParams (evita Suspense)
       const params = new URLSearchParams(window.location.search);
       if (params.get('success') === 'true') {
+        posthog?.capture('pro_subscription_confirmed');
         setNotice({ type: 'success', msg: '🎉 Assinatura ativada! Bem-vindo ao PRO.' });
         window.history.replaceState({}, '', '/upgrade');
       } else if (params.get('canceled') === 'true') {
@@ -92,6 +95,7 @@ export default function UpgradePage() {
       });
       const data = await res.json();
       if (data.url) {
+        posthog?.capture('pro_checkout_started', { plan });
         window.location.href = data.url;
       } else {
         setNotice({ type: 'error', msg: data.error ?? 'Erro ao iniciar pagamento.' });

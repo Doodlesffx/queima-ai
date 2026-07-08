@@ -8,6 +8,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Camera, TrendingUp, Users, Utensils, Award, Zap, Crown, Edit2, Dumbbell, Loader2 } from 'lucide-react';
 import { createBrowserClient } from '@supabase/ssr';
+import { usePostHog } from 'posthog-js/react';
 import type { QuizData } from '@/lib/types';
 import UserProfile from '@/components/UserProfile';
 import SupportWidget from '@/components/SupportWidget';
@@ -18,6 +19,7 @@ export default function DashboardPage() {
   const [userName, setUserName] = useState('Usuário');
   const [isPro, setIsPro] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
+  const posthog = usePostHog();
   const [editingField, setEditingField] = useState<string | null>(null);
   const [tempValue, setTempValue] = useState('');
   const [loading, setLoading] = useState(true);
@@ -68,6 +70,7 @@ export default function DashboardPage() {
           setUserName(data.nome || user.email?.split('@')[0] || 'Usuário');
           setIsAdmin(data.is_admin === true);
           setIsPro(data.plan === 'pro' || data.is_admin === true);
+          posthog?.identify(user.id, { email: user.email, plan: data.plan, is_admin: data.is_admin ?? false });
         }
       } catch (err) {
         console.error('Erro ao carregar dados:', err);

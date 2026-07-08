@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { ArrowLeft, Loader2, Dumbbell, Info, X, Flame, Clock } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { createBrowserClient } from '@supabase/ssr';
+import { usePostHog } from 'posthog-js/react';
 import type { QuizData } from '@/lib/types';
 import { getExerciseInfo } from '@/lib/exerciseDatabase';
 
@@ -43,6 +44,7 @@ export default function WorkoutPage() {
   const [selectedExercise, setSelectedExercise] = useState<string | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [loading, setLoading] = useState(true);
+  const posthog = usePostHog();
 
   const supabase = createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -123,6 +125,7 @@ export default function WorkoutPage() {
       }
 
       setWorkoutPlan(data);
+      posthog?.capture('workout_generated', { local, nivel, frequencia, objetivo });
     } catch (err: any) {
       setError(err.message || 'Erro ao gerar plano de treino');
     } finally {

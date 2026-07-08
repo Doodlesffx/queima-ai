@@ -8,6 +8,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ChevronLeft, ChevronRight, Check, Loader2 } from 'lucide-react';
 import { createBrowserClient } from '@supabase/ssr';
+import { usePostHog } from 'posthog-js/react';
 import type { QuizData } from '@/lib/types';
 
 export default function QuizPage() {
@@ -15,6 +16,7 @@ export default function QuizPage() {
   const [currentStep, setCurrentStep] = useState(0);
   const [quizData, setQuizData] = useState<Partial<QuizData>>({});
   const [isSaving, setIsSaving] = useState(false);
+  const posthog = usePostHog();
   
   const supabase = createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -203,6 +205,7 @@ export default function QuizPage() {
           tipoTreino: quizData.tipoTreino,
         }));
 
+        posthog?.capture('quiz_completed', { objetivo: quizData.objetivo });
         // Redireciona pro dashboard
         router.push('/dashboard');
         router.refresh(); // Força atualizar

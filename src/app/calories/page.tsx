@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from 'react';
 import { Camera, Loader2, Flame, Clock, Zap, ArrowLeft, Share2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { createBrowserClient } from '@supabase/ssr';
+import { usePostHog } from 'posthog-js/react';
 import ShareMenu from '@/components/ShareMenu';
 
 interface AnalysisResult {
@@ -41,6 +42,7 @@ export default function CaloriesPage() {
   const [showShareMenu, setShowShareMenu] = useState(false);
   const [needsDescription, setNeedsDescription] = useState(false);
   const [userDescription, setUserDescription] = useState('');
+  const posthog = usePostHog();
   const [pageLoading, setPageLoading] = useState(true);
   const [userId, setUserId] = useState<string | null>(null);
 
@@ -145,6 +147,7 @@ export default function CaloriesPage() {
       };
 
       setResult(safeResult);
+      posthog?.capture('food_analyzed', { alimento: safeResult.alimento, calorias: safeResult.calorias });
       saveToHistory(safeResult);
     } catch (err: any) {
       setError(err.message || 'Erro ao processar imagem');
