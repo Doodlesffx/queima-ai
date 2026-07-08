@@ -36,6 +36,22 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Dados incompletos' }, { status: 400 });
     }
 
+    // Chave de cache: combinação exata dos 4 parâmetros estruturais
+    const cacheKey = `${local}:${nivel}:${frequencia}:${objetivo}`;
+
+    // Busca cache válido (não expirado)
+    const { data: cached } = await supabase
+      .from('workout_cache')
+      .select('resultado')
+      .eq('cache_key', cacheKey)
+      .gt('expires_at', new Date().toISOString())
+      .maybeSingle();
+
+    if (cached) {
+      return NextResponse.json(cached.resultado);
+    }
+
+    // Cache miss — gera com Gemini
     const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
 
     const prompt = `
@@ -69,14 +85,25 @@ Responda APENAS JSON (sem markdown):
     const cleaned = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
     const parsed = JSON.parse(cleaned);
 
-    return NextResponse.json({
+    const workout = {
       tipo:          parsed.tipo,
       frequencia:    parsed.frequencia,
       duracaoSessao: parsed.duracaoSessao,
       gastoCalorico: parsed.gastoCalorico,
       treinos:       parsed.treinos,
       dicas:         parsed.dicas,
+    };
+
+    // Salva no cache (upsert substitui entradas expiradas com a mesma chave)
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+    supabase.from('workout_cache').upsert(
+      { cache_key: cacheKey, resultado: workout, expires_at: expiresAt },
+      { onConflict: 'cache_key' }
+    ).then(({ error }) => {
+      if (error) console.error('Erro ao salvar cache de treino:', error);
     });
+
+    return NextResponse.json(workout);
 
   } catch (error: unknown) {
     console.error('Erro ao gerar treino:', error);
