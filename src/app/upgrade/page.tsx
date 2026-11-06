@@ -37,13 +37,13 @@ const freeFeatures = [
 ];
 
 const proFeatures = [
-  { text: '10 análises de comida por dia'      },
-  { text: '3 dietas por dia'                   },
-  { text: '5 treinos por dia'                  },
-  { text: 'Histórico completo salvo'           },
-  { text: 'Simulador corporal (em breve)'      },
-  { text: 'Suporte prioritário'                },
-  { text: 'Sem anúncios'                       },
+  { text: 'Análises de comida ilimitadas' },
+  { text: 'Dietas ilimitadas' },
+  { text: 'Treinos ilimitados' },
+  { text: 'Histórico completo salvo' },
+  { text: 'Simulador corporal (em breve)' },
+  { text: 'Suporte prioritário' },
+  { text: 'Uso justo: trava só contra abuso (robôs e excesso fora do normal)' },
 ];
 
 export default function UpgradePage() {
@@ -205,7 +205,7 @@ export default function UpgradePage() {
                 </span>
               </h2>
               <p className="text-xl text-gray-400 max-w-2xl mx-auto">
-                Análises ilimitadas, dietas personalizadas e ferramentas exclusivas
+                Análises, dietas e treinos ilimitados no uso do dia a dia
               </p>
             </div>
 
@@ -313,6 +313,9 @@ export default function UpgradePage() {
                 <p className="text-center text-xs text-gray-400 mt-3">
                   Pagamento seguro via Stripe • Cancele quando quiser • Garantia de 7 dias
                 </p>
+                <p className="text-center text-xs text-gray-500 mt-2">
+                  Ilimitado para uso real. Existe um teto automático só para impedir abuso.
+                </p>
               </div>
             </div>
         </>
@@ -337,6 +340,10 @@ export default function UpgradePage() {
               {
                 q: 'Qual a diferença entre os planos?',
                 a: 'Todos os planos PRO têm as mesmas funcionalidades. A diferença é só no período e no desconto: quanto maior o período, maior a economia.',
+              },
+              {
+                q: 'O PRO é realmente ilimitado?',
+                a: 'Sim, para o uso normal: fotografar refeições, gerar dieta e treino à vontade. Existe um teto automático só para barrar robôs e abuso. Quem usa o app de verdade não chega nesse teto.',
               },
             ].map(({ q, a }, i) => (
               <details key={i} className="bg-gray-900 rounded-xl p-6 border border-gray-800 cursor-pointer">

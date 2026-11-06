@@ -18,7 +18,7 @@ interface DietPlan {
   refeicoes: Array<{
     nome: string;
     horario: string;
-    alimentos: string[];
+    alimentos: Array<{ nome: string; quantidade: string } | string>;
     calorias: number;
   }>;
   dicas: string[];
@@ -98,10 +98,10 @@ export default function DietPage() {
     const tmb  = calcularTMB(
       quizData.peso,
       quizData.altura,
-      (quizData as any).idade,
-      (quizData as any).genero,
+      quizData.idade,
+      quizData.genero,
     );
-    const tdee = calcularTDEE(tmb, (quizData as any).nivelAtividade);
+    const tdee = calcularTDEE(tmb, quizData.nivelAtividade);
     const auto = calcularCaloriasAuto(tdee, quizData.objetivo);
     return { tmb, tdee, auto };
   }, [quizData]);
@@ -133,7 +133,11 @@ export default function DietPage() {
       meals:          dietData.refeicoes.map((meal) => ({
         name:  meal.nome,
         time:  meal.horario,
-        foods: meal.alimentos || [],
+        foods: (meal.alimentos || []).map((alimento) =>
+          typeof alimento === 'string'
+            ? alimento
+            : [alimento.nome, alimento.quantidade].filter(Boolean).join(' — ')
+        ),
       })),
     };
     const key = `dietHistory_${userId}`;
@@ -609,12 +613,23 @@ export default function DietPage() {
                       </div>
                     </div>
                     <ul className="space-y-2">
-                      {refeicao.alimentos.map((alimento, i) => (
-                        <li key={i} className="flex items-center gap-2 text-gray-300">
-                          <div className="w-2 h-2 bg-[#00AEEF] rounded-full" />
-                          {alimento}
-                        </li>
-                      ))}
+                      {refeicao.alimentos.map((alimento, i) => {
+                        const nome = typeof alimento === 'string' ? alimento : alimento.nome;
+                        const quantidade = typeof alimento === 'string' ? '' : alimento.quantidade;
+                        return (
+                          <li key={i} className="flex items-center justify-between gap-3 text-gray-300">
+                            <span className="flex items-center gap-2 min-w-0">
+                              <div className="w-2 h-2 bg-[#00AEEF] rounded-full flex-shrink-0" />
+                              <span>{nome}</span>
+                            </span>
+                            {quantidade ? (
+                              <span className="text-[#00AEEF] font-semibold whitespace-nowrap text-sm">
+                                {quantidade}
+                              </span>
+                            ) : null}
+                          </li>
+                        );
+                      })}
                     </ul>
                   </div>
                 ))}

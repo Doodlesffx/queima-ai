@@ -6,6 +6,8 @@ export interface QuizData {
   objetivo: 'perder' | 'ganhar' | 'acompanhar' | 'curiosidade';
   peso: number;
   altura: number;
+  idade?: number;
+  genero?: 'masculino' | 'feminino';
   nivelAtividade: 'sedentario' | 'leve' | 'moderado' | 'intenso';
   fazeExercicios: 'sim' | 'nao' | 'as-vezes';
   fastFoodFrequencia: '0' | '1-2' | '3-4' | '5+';

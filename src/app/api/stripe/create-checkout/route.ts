@@ -62,6 +62,7 @@ export async function POST(req: NextRequest) {
     cancel_url:  `${origin}/upgrade?canceled=true`,
     locale: 'pt-BR',
     allow_promotion_codes: true,
+    metadata: { supabase_user_id: user.id },
     subscription_data: {
       metadata: { supabase_user_id: user.id },
     },

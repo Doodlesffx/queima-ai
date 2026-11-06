@@ -1,10 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import Groq from 'groq-sdk';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
-import { checkAndIncrement } from '@/lib/rateLimit';
-
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+import { checkRateLimit, incrementUsage } from '@/lib/rateLimit';
+import { parseJsonContent, aiChatCompletion } from '@/lib/ai';
 
 export async function POST(req: NextRequest) {
   const cookieStore = await cookies();
@@ -26,11 +24,11 @@ export async function POST(req: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
 
-  const rateLimit = await checkAndIncrement(supabase, user.id, 'analise');
+  const rateLimit = await checkRateLimit(supabase, user.id, 'analise');
   if (!rateLimit.allowed) return rateLimit.response;
 
   try {
-    const { imageBase64 } = await req.json();
+    const { imageBase64, userDescription } = await req.json();
 
     if (!imageBase64) {
       return NextResponse.json({ error: 'Nenhuma imagem foi enviada' }, { status: 400 });
@@ -40,7 +38,7 @@ export async function POST(req: NextRequest) {
 
     const prompt = `
 Você é um nutricionista expert. Analise esta imagem de comida e identifique o alimento.
-
+${userDescription ? `\nO usuário descreveu o prato assim: "${userDescription}". Use isso para confirmar a identificação.\n` : ''}
 Forneça as seguintes informações em formato JSON (sem formatação markdown, apenas o JSON puro):
 
 {
@@ -54,20 +52,21 @@ Forneça as seguintes informações em formato JSON (sem formatação markdown, 
 
 Seja preciso na identificação e nas estimativas nutricionais.`;
 
-    const result = await groq.chat.completions.create({
-      model: 'meta-llama/llama-4-scout-17b-16e-instruct',
-      messages: [{
-        role: 'user',
-        content: [
-          { type: 'text', text: prompt },
-          { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${base64Data}` } },
-        ],
-      }],
-    });
-
-    const responseText = result.choices[0].message.content || '';
-    const cleaned = responseText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-    const parsed = JSON.parse(cleaned);
+    const responseText = await aiChatCompletion([{
+      role: 'user',
+      content: [
+        { type: 'text', text: prompt },
+        { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${base64Data}` } },
+      ],
+    }], { vision: true });
+    const parsed = parseJsonContent<{
+      alimento: string;
+      calorias: number;
+      equivalencia: string;
+      proteinas: number;
+      carboidratos: number;
+      gorduras: number;
+    }>(responseText);
 
     const tempoQueima = {
       caminhada:    Math.round(parsed.calorias / 5),
@@ -75,6 +74,8 @@ Seja preciso na identificação e nas estimativas nutricionais.`;
       bike:         Math.round(parsed.calorias / 8),
       musculacao:   Math.round(parsed.calorias / 6),
     };
+
+    await incrementUsage(supabase, user.id, 'analise');
 
     return NextResponse.json({
       alimento:     parsed.alimento,

@@ -82,9 +82,9 @@ export async function sendWelcomeEmail(to: string, name: string): Promise<void> 
 
 export async function sendProConfirmationEmail(to: string, name: string, planName: string): Promise<void> {
   const perks = [
-    '10 análises de comida por dia',
-    '3 dietas geradas por dia',
-    '5 treinos gerados por dia',
+    'Análises de comida ilimitadas',
+    'Dietas ilimitadas',
+    'Treinos ilimitados',
     'Histórico completo salvo',
     'Suporte prioritário',
   ];

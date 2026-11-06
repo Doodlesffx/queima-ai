@@ -1,10 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import Groq from 'groq-sdk';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
-import { checkAndIncrement } from '@/lib/rateLimit';
-
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+import { checkRateLimit, incrementUsage } from '@/lib/rateLimit';
+import { parseJsonContent, aiChatCompletion } from '@/lib/ai';
 
 export async function POST(req: NextRequest) {
   const cookieStore = await cookies();
@@ -26,9 +24,6 @@ export async function POST(req: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
 
-  const rateLimit = await checkAndIncrement(supabase, user.id, 'treino');
-  if (!rateLimit.allowed) return rateLimit.response;
-
   try {
     const { local, nivel, frequencia, objetivo, peso, altura } = await req.json();
 
@@ -36,10 +31,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Dados incompletos' }, { status: 400 });
     }
 
-    // Chave de cache: combinação exata dos 4 parâmetros estruturais
     const cacheKey = `${local}:${nivel}:${frequencia}:${objetivo}`;
 
-    // Busca cache válido (não expirado)
     const { data: cached } = await supabase
       .from('workout_cache')
       .select('resultado')
@@ -51,7 +44,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(cached.resultado);
     }
 
-    // Cache miss — gera com Groq
+    const rateLimit = await checkRateLimit(supabase, user.id, 'treino');
+    if (!rateLimit.allowed) return rateLimit.response;
+
+    // Cache miss — gera com IA (Groq)
     const prompt = `
 Você é personal trainer. Crie plano de treino:
 - Local: ${local === 'casa' ? 'Casa (sem equipamentos)' : 'Academia'}
@@ -78,13 +74,15 @@ Responda APENAS JSON (sem markdown):
   "dicas": ["Aqueça 5-10min"]
 }`;
 
-    const result = await groq.chat.completions.create({
-      model: 'llama-3.3-70b-versatile',
-      messages: [{ role: 'user', content: prompt }],
-    });
-    const text = result.choices[0].message.content || '';
-    const cleaned = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-    const parsed = JSON.parse(cleaned);
+    const text = await aiChatCompletion([{ role: 'user', content: prompt }]);
+    const parsed = parseJsonContent<{
+      tipo: string;
+      frequencia: string;
+      duracaoSessao: string;
+      gastoCalorico: number;
+      treinos: unknown[];
+      dicas: unknown[];
+    }>(text);
 
     const workout = {
       tipo:          parsed.tipo,
@@ -95,7 +93,8 @@ Responda APENAS JSON (sem markdown):
       dicas:         parsed.dicas,
     };
 
-    // Salva no cache (upsert substitui entradas expiradas com a mesma chave)
+    await incrementUsage(supabase, user.id, 'treino');
+
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
     supabase.from('workout_cache').upsert(
       { cache_key: cacheKey, resultado: workout, expires_at: expiresAt },

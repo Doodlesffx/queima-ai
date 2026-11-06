@@ -1,10 +1,33 @@
 import { NextRequest, NextResponse } from 'next/server';
-import Groq from 'groq-sdk';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
-import { checkAndIncrement } from '@/lib/rateLimit';
+import { checkRateLimit, incrementUsage } from '@/lib/rateLimit';
+import { parseJsonContent, aiChatCompletion } from '@/lib/ai';
 
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+type AlimentoPorcao = { nome: string; quantidade: string };
+
+function normalizeAlimentos(raw: unknown): AlimentoPorcao[] {
+  if (!Array.isArray(raw)) return [];
+
+  return raw.flatMap((item): AlimentoPorcao[] => {
+    if (typeof item === 'string') {
+      const splitDash = item.match(/^(.+?)\s*[—\-–]\s*(.+)$/);
+      if (splitDash) {
+        return [{ nome: splitDash[1].trim(), quantidade: splitDash[2].trim() }];
+      }
+      return [{ nome: item.trim(), quantidade: '' }];
+    }
+
+    if (item && typeof item === 'object') {
+      const o = item as Record<string, unknown>;
+      const nome = String(o.nome ?? o.alimento ?? '').trim();
+      const quantidade = String(o.quantidade ?? o.medida ?? o.porcao ?? '').trim();
+      return nome ? [{ nome, quantidade }] : [];
+    }
+
+    return [];
+  });
+}
 
 export async function POST(req: NextRequest) {
   const cookieStore = await cookies();
@@ -26,7 +49,7 @@ export async function POST(req: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
 
-  const rateLimit = await checkAndIncrement(supabase, user.id, 'dieta');
+  const rateLimit = await checkRateLimit(supabase, user.id, 'dieta');
   if (!rateLimit.allowed) return rateLimit.response;
 
   try {
@@ -63,8 +86,11 @@ Responda APENAS com um JSON válido (sem markdown, sem backticks) neste formato:
     {
       "nome": "Café da Manhã",
       "horario": "07:00",
-      "alimentos": ["Alimento 1", "Alimento 2"],
-      "calorias": 400
+      "alimentos": [
+        { "nome": "Banana prata", "quantidade": "80g (1 unidade média)" },
+        { "nome": "Iogurte natural desnatado", "quantidade": "200ml" }
+      ],
+      "calorias": 300
     }
   ],
   "dicas": ["Dica 1", "Dica 2"],
@@ -77,26 +103,45 @@ Responda APENAS com um JSON válido (sem markdown, sem backticks) neste formato:
   ]
 }
 
+REGRAS OBRIGATÓRIAS DE PORÇÃO:
+- NUNCA liste um alimento sem quantidade. Sempre informe medida prática: g, ml, unidade, fatia, colher de sopa, xícara.
+- As porções de cada refeição, somadas, devem bater (com margem de ~10%) as calorias daquela refeição. Ex.: café da manhã de 300 kcal NÃO pode ter 2L de iogurte nem 10 bananas.
+- Use porções realistas do dia a dia (ex.: banana 80g, iogurte 170–200ml, frango 120g, arroz 100g cozido).
+- Evite "a vontade", "a gosto" ou nomes soltos sem medida. Folhas verdes podem ser "à vontade" só se o restante da refeição já fechar as calorias.
+
 Crie 6 refeições balanceadas (Café, Lanche Manhã, Almoço, Lanche Tarde, Jantar, Ceia).
 ${preferencias ? `IMPORTANTE: Considere as preferências: ${preferencias}` : ''}
 ${restricoes ? `IMPORTANTE: Evite completamente: ${restricoes}` : ''}`;
 
-    const result = await groq.chat.completions.create({
-      model: 'llama-3.3-70b-versatile',
-      messages: [{ role: 'user', content: prompt }],
-    });
-    const responseText = result.choices[0].message.content || '';
-    const cleaned = responseText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-    const parsed = JSON.parse(cleaned);
+    const responseText = await aiChatCompletion([{ role: 'user', content: prompt }]);
+    const parsed = parseJsonContent<{
+      refeicoes?: Array<{
+        nome?: string;
+        horario?: string;
+        calorias?: number;
+        alimentos?: unknown[];
+      }>;
+      dicas?: unknown[];
+      exercicios?: unknown[];
+    }>(responseText);
 
     const proteinas    = Math.round((caloriasAlvo * 0.3) / 4);
     const carboidratos = Math.round((caloriasAlvo * 0.4) / 4);
     const gorduras     = Math.round((caloriasAlvo * 0.3) / 9);
 
+    const refeicoes = (parsed.refeicoes || []).map((refeicao) => ({
+      nome: refeicao.nome || 'Refeição',
+      horario: refeicao.horario || '',
+      calorias: refeicao.calorias || 0,
+      alimentos: normalizeAlimentos(refeicao.alimentos),
+    }));
+
+    await incrementUsage(supabase, user.id, 'dieta');
+
     return NextResponse.json({
       caloriasAlvo,
       macros: { proteinas, carboidratos, gorduras },
-      refeicoes:  parsed.refeicoes  || [],
+      refeicoes,
       dicas:      parsed.dicas      || [],
       exercicios: parsed.exercicios || [],
     });

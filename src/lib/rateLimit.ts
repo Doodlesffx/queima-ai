@@ -9,10 +9,13 @@ const LIMITS = {
 } as const;
 
 const FREE_MESSAGES: Record<Resource, string> = {
-  analise: 'Você atingiu o limite de 1 análise por dia no plano gratuito. Faça upgrade para PRO e analise até 10 vezes ao dia.',
-  dieta:   'Você atingiu o limite de 1 dieta por semana no plano gratuito. Faça upgrade para PRO e gere até 3 dietas por dia.',
-  treino:  'Você atingiu o limite de 3 treinos por semana no plano gratuito. Faça upgrade para PRO e gere até 5 treinos por dia.',
+  analise: 'Você atingiu o limite de 1 análise por dia no plano gratuito. No PRO o uso é ilimitado no dia a dia.',
+  dieta:   'Você atingiu o limite de 1 dieta por semana no plano gratuito. No PRO o uso é ilimitado no dia a dia.',
+  treino:  'Você atingiu o limite de 3 treinos por semana no plano gratuito. No PRO o uso é ilimitado no dia a dia.',
 };
+
+const PRO_FAIR_USE_MESSAGE =
+  'Detectamos um volume de uso fora do comum nesta conta. Tente novamente amanhã.';
 
 function todayISO(): string {
   return new Date().toISOString().split('T')[0];
@@ -25,16 +28,19 @@ function currentMondayISO(): string {
   return d.toISOString().split('T')[0];
 }
 
-type RateLimitResult =
-  | { allowed: true }
-  | { allowed: false; response: NextResponse };
+type RateLimitBlocked = { allowed: false; response: NextResponse };
 
-export async function checkAndIncrement(
+type UsageState = {
+  updates: Record<string, string | number>;
+  nextCount: number;
+};
+
+async function getUsageState(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   supabase: SupabaseClient<any>,
   userId: string,
   resource: Resource
-): Promise<RateLimitResult> {
+): Promise<RateLimitBlocked | { allowed: true; userId: string; state: UsageState }> {
   const { data: profile } = await supabase
     .from('users')
     .select('plan, is_admin, uso_analises, uso_analises_data, uso_dietas, uso_dietas_semana, uso_treinos, uso_treinos_semana')
@@ -48,8 +54,9 @@ export async function checkAndIncrement(
     };
   }
 
-  // Admins nunca são bloqueados
-  if (profile.is_admin) return { allowed: true };
+  if (profile.is_admin) {
+    return { allowed: true, userId, state: { updates: {}, nextCount: 0 } };
+  }
 
   const plan: 'free' | 'pro' = profile.plan === 'pro' ? 'pro' : 'free';
   const limit = LIMITS[plan][resource];
@@ -60,7 +67,6 @@ export async function checkAndIncrement(
   const updates: Record<string, string | number> = {};
 
   if (resource === 'analise') {
-    // Diário: reseta se a data mudou
     if (profile.uso_analises_data !== today) {
       count = 0;
       updates.uso_analises_data = today;
@@ -68,18 +74,19 @@ export async function checkAndIncrement(
       count = profile.uso_analises ?? 0;
     }
   } else if (resource === 'dieta') {
-    // Semanal: reseta se a semana mudou
-    if (profile.uso_dietas_semana !== monday) {
+    // Grátis: 1 por semana. PRO: teto diário de uso justo (anti-abuso).
+    const periodKey = plan === 'pro' ? today : monday;
+    if (profile.uso_dietas_semana !== periodKey) {
       count = 0;
-      updates.uso_dietas_semana = monday;
+      updates.uso_dietas_semana = periodKey;
     } else {
       count = profile.uso_dietas ?? 0;
     }
   } else {
-    // treino — semanal
-    if (profile.uso_treinos_semana !== monday) {
+    const periodKey = plan === 'pro' ? today : monday;
+    if (profile.uso_treinos_semana !== periodKey) {
       count = 0;
-      updates.uso_treinos_semana = monday;
+      updates.uso_treinos_semana = periodKey;
     } else {
       count = profile.uso_treinos ?? 0;
     }
@@ -92,7 +99,7 @@ export async function checkAndIncrement(
         {
           error: plan === 'free'
             ? FREE_MESSAGES[resource]
-            : 'Serviço temporariamente indisponível, tente mais tarde.',
+            : PRO_FAIR_USE_MESSAGE,
           limitReached: true,
         },
         { status: 429 }
@@ -100,12 +107,34 @@ export async function checkAndIncrement(
     };
   }
 
-  // Incrementa o contador
   if (resource === 'analise')  updates.uso_analises = count + 1;
   else if (resource === 'dieta') updates.uso_dietas = count + 1;
   else                           updates.uso_treinos = count + 1;
 
-  await supabase.from('users').update(updates).eq('id', userId);
+  return { allowed: true, userId, state: { updates, nextCount: count + 1 } };
+}
 
+export async function checkRateLimit(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: SupabaseClient<any>,
+  userId: string,
+  resource: Resource
+): Promise<{ allowed: true } | RateLimitBlocked> {
+  const result = await getUsageState(supabase, userId, resource);
+  if (!result.allowed) return result;
   return { allowed: true };
+}
+
+export async function incrementUsage(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: SupabaseClient<any>,
+  userId: string,
+  resource: Resource
+): Promise<void> {
+  const result = await getUsageState(supabase, userId, resource);
+  if (!result.allowed) return;
+  if (Object.keys(result.state.updates).length === 0) return;
+
+  const { error } = await supabase.from('users').update(result.state.updates).eq('id', userId);
+  if (error) console.error('Erro ao registrar uso:', error);
 }
